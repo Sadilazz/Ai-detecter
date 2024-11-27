@@ -1,0 +1,95 @@
+import os
+import telebot
+import torch
+import numpy as np
+from PIL import Image
+import requests
+from io import BytesIO
+from transformers import AutoFeatureExtractor, AutoModelForImageClassification
+from torch.nn.functional import softmax
+
+# Replace with your actual Telegram Bot Token
+BOT_TOKEN = '8039010694:AAEXJA5GgE17nIbXXWn2LVHZgmlpfVqP5TA'
+
+# AI Detection Model Configuration
+MODEL_NAME = "microsoft/resnet-50"  # Example pre-trained model for image classification
+feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_NAME)
+ai_detection_model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
+
+class AIDetectionBot:
+    def __init__(self, token):
+        self.bot = telebot.TeleBot(token)
+        self.setup_handlers()
+
+    def download_image(self, file_id):
+        """Download image from Telegram"""
+        file_info = self.bot.get_file(file_id)
+        downloaded_file = self.bot.download_file(file_info.file_path)
+        return Image.open(BytesIO(downloaded_file))
+
+    def detect_ai_image(self, image):
+        """Detect if an image is AI-generated"""
+        # Preprocess image
+        inputs = feature_extractor(images=image, return_tensors="pt")
+        
+        # Run inference
+        with torch.no_grad():
+            outputs = ai_detection_model(**inputs)
+            probabilities = softmax(outputs.logits, dim=1)
+            
+        # Simple AI detection logic (you'd want to replace with a more sophisticated model)
+        ai_probability = probabilities.max().item()
+        return ai_probability > 0.7  # Threshold can be adjusted
+
+    def setup_handlers(self):
+        @self.bot.message_handler(commands=['start', 'help'])
+        def send_welcome(message):
+            welcome_text = (
+                "🤖 AI Profile Picture & Video Detector Bot 🕵️\n\n"
+                "Send me a photo or video, and I'll analyze if it's AI-generated!\n"
+                "Commands:\n"
+                "/start - Start the bot\n"
+                "/help - Show this help message"
+            )
+            self.bot.reply_to(message, welcome_text)
+
+        @self.bot.message_handler(content_types=['photo'])
+        def handle_photo(message):
+            try:
+                # Get the last (highest resolution) photo
+                file_id = message.photo[-1].file_id
+                image = self.download_image(file_id)
+                
+                is_ai = self.detect_ai_image(image)
+                
+                if is_ai:
+                    response = "🤖 This image appears to be AI-generated!"
+                else:
+                    response = "📷 This image seems to be a real photograph."
+                
+                self.bot.reply_to(message, response)
+            
+            except Exception as e:
+                self.bot.reply_to(message, f"Error processing image: {str(e)}")
+
+        @self.bot.message_handler(content_types=['video'])
+        def handle_video(message):
+            self.bot.reply_to(message, "Video detection coming soon! Currently supported for images.")
+
+    def start(self):
+        print("Bot is running...")
+        self.bot.infinity_polling()
+
+def main():
+    bot = AIDetectionBot(BOT_TOKEN)
+    bot.start()
+
+if __name__ == "__main__":
+    main()
+
+# Requirements (requirements.txt):
+# pyTelegramBotAPI
+# torch
+# transformers
+# pillow
+# requests
